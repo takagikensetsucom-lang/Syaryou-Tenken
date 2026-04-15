@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+  <title>社用車始業前点検</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <!-- LIFF SDK -->
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <!-- Signature Pad -->
+  <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
+  <!-- Image Compression -->
+  <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
+  <!-- Material Icons -->
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0"
+    rel="stylesheet">
+
+  <!-- vConsole (Debug Tool) - 開発中のみ有効にすると便利です -->
+  <!-- <script src="https://unpkg.com/vconsole@latest/dist/vconsole.min.js"></script>
+    <script>var vConsole = new window.VConsole();</script> -->
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f3f4f6;
+      color: #1f2937;
+    }
+
+    .canvas-container {
+      border: 2px dashed #9ca3af;
+      border-radius: 8px;
+      background: #fff;
+      touch-action: none;
+    }
+
+    /* 隠しラジオボタン */
+    input[type="radio"] {
+      display: none;
+    }
+
+    .radio-label {
+      transition: all 0.2s;
+    }
+
+    /* 正常/清潔 (緑) のスタイル */
+    input[type="radio"].radio-green:checked+.radio-label {
+      background-color: #10b981;
+      /* bg-emerald-500 */
+      color: white;
+      border-color: #10b981;
+    }
+
+    /* 異常/汚い (赤) のスタイル */
+    input[type="radio"].radio-red:checked+.radio-label {
+      background-color: #ef4444;
+      /* bg-red-500 */
+      color: white;
+      border-color: #ef4444;
+    }
+
+    /* 異常ランプ用 (黄) のスタイル */
+    input[type="radio"].radio-yellow:checked+.radio-label {
+      background-color: #f59e0b;
+      /* bg-amber-500 */
+      color: white;
+      border-color: #f59e0b;
+    }
+
+    /* 写真アップロードエリア */
+    .photo-area {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 140px;
+      background: #f9fafb;
+      border: 2px dashed #d1d5db;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .photo-area:hover {
+      border-color: #3b82f6;
+    }
+
+    .photo-area img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    .photo-remove {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 32px;
+      height: 32px;
+      background: #ef4444;
+      color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+  </style>
+</head>
+
+<body class="pb-20">
+
+  <!-- Loading Overlay -->
+  <div id="loading" class="fixed inset-0 bg-white bg-opacity-90 z-50 flex flex-col items-center justify-center">
+    <div class="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-blue-600 mb-4"></div>
+    <p id="loading-text" class="text-lg font-semibold text-gray-700">システム初期化中...</p>
+  </div>
+
+  <div class="max-w-xl mx-auto p-4 md:p-6 space-y-6">
+
+    <!-- ヘッダー -->
+    <header class="text-center py-4 border-b-2 border-blue-600 flex flex-col items-center">
+      <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mb-3 shadow-md">
+        <span class="material-symbols-rounded text-white text-4xl">local_shipping</span>
+      </div>
+      <h1 class="text-2xl font-bold text-blue-800">社用車始業前点検</h1>
+    </header>
+
+    <form id="inspectionForm" class="space-y-6">
+
+      <!-- 点検者情報 -->
+      <section class="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+        <h2 class="text-lg font-bold mb-3 border-l-4 border-blue-500 pl-2">点検者情報</h2>
+        <div id="employee-info" class="hidden text-lg font-semibold text-gray-800"></div>
+
+        <div id="guest-input-area" class="hidden space-y-3">
+          <p class="text-sm text-red-500 font-semibold text-sm">システムに未登録のユーザーです。氏名を入力してください。</p>
+          <div>
+            <label class="block text-sm font-semibold mb-1">点検者氏名 <span class="text-red-500">*</span></label>
+            <input type="text" id="guest-name"
+              class="w-full border border-gray-300 rounded-md p-3 text-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              placeholder="例: 営業太郎">
+          </div>
+        </div>
+      </section>
+
+      <!-- 車両選択 -->
+      <section class="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+        <h2 class="text-lg font-bold mb-3 border-l-4 border-blue-500 pl-2 flex items-center gap-1">
+          <span class="material-symbols-rounded text-blue-500 text-xl">directions_car</span>対象車両
+        </h2>
+        <div>
+          <label class="block text-sm font-semibold mb-2">点検する車両 <span class="text-red-500">*</span></label>
+          <select id="vehicle-select"
+            class="w-full border border-gray-300 rounded-md p-3 text-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none">
+            <option value="">-- 選択してください --</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- タイヤ点検 -->
+      <section class="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+        <h2 class="text-lg font-bold mb-4 border-l-4 border-yellow-500 pl-2 flex items-center gap-1">
+          <span class="material-symbols-rounded text-yellow-500 text-xl">tire_repair</span>タイヤ点検
+        </h2>
+
+        <div class="space-y-5">
+          <div>
+            <label class="block text-sm font-semibold mb-2">タイヤ状態 <span class="text-red-500">*</span></label>
+            <div class="flex gap-3">
+              <label class="flex-1 text-center cursor-pointer">
+                <input type="radio" name="tire-condition" value="正常" class="radio-green">
+                <div
+                  class="radio-label border-2 border-gray-300 rounded-lg py-3 text-lg font-bold bg-white shadow-sm flex items-center justify-center gap-1">
+                  <span class="material-symbols-rounded">check_circle</span> 正常
+                </div>
+              </label>
+              <label class="flex-1 text-center cursor-pointer">
+                <input type="radio" name="tire-condition" value="異常あり" class="radio-red">
+                <div
+                  class="radio-label border-2 border-gray-300 rounded-lg py-3 text-lg font-bold bg-white shadow-sm flex items-center justify-center gap-1">
+                  <span class="material-symbols-rounded">error</span> 異常あり
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-semibold mb-2">タイヤ溝深さ <span class="text-red-500">*</span></label>
+            <select id="tire-depth"
+              class="w-full border border-gray-300 rounded-md p-3 text-base bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none">
+              <option value="">-- 選択してください --</option>
+              <option value="十分（4mm以上）">十分（4mm以上）</option>
+              <option value="やや摩耗（2〜4mm）">やや摩耗（2〜4mm）</option>
+              <option value="要交換（2mm未満）">要交換（2mm未満）</option>
+              <option value="スリップサイン露出">スリップサイン露出</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <!-- メーター確認 -->
+      <section class="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+        <h2 class="text-lg font-bold mb-4 border-l-4 border-green-500 pl-2 flex items-center gap-1">
+          <span class="material-symbols-rounded text-green-500 text-xl">speed</span>メーター確認
+        </h2>
+
+        <div class="space-y-5">
+          <div>
+            <label class="block text-sm font-semibold mb-2">メーター写真 <span class="text-red-500">*</span></label>
+            <div class="photo-area" id="meter-photo-area"
+              onclick="document.getElementById('meter-photo-input').click()">
+              <span class="material-symbols-rounded text-4xl text-gray-400 mb-1">photo_camera</span>
+              <span class="text-sm text-gray-500">タップして撮影 / 画像を選択</span>
+            </div>
+            <input type="file" id="meter-photo-input" accept="image/*" class="hidden"
+              onchange="handlePhotoSelect(this, 'meter')">
+          </div>
+
+          <div>
+            <label class="block text-sm font-semibold mb-2">異常ランプ <span class="text-red-500">*</span></label>
+            <div class="flex gap-3">
+              <label class="flex-1 text-center cursor-pointer">
+                <input type="radio" name="warning-lights" value="なし" class="radio-green">
+                <div
+                  class="radio-label border-2 border-gray-300 rounded-lg py-3 text-lg font-bold bg-white shadow-sm flex items-center justify-center gap-1">
+                  <span class="material-symbols-rounded">check_circle</span> なし
+                </div>
+              </label>
+              <label class="flex-1 text-center cursor-pointer">
+                <input type="radio" name="warning-lights" value="あり" class="radio-yellow">
+                <div
+                  class="radio-label border-2 border-gray-300 rounded-lg py-3 text-lg font-bold bg-white shadow-sm flex items-center justify-center gap-1">
+                  <span class="material-symbols-rounded">warning</span> あり
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-semibold mb-2">走行メーター値 (km) <span class="text-red-500">*</span></label>
+            <input type="number" id="odometer"
+              class="w-full border border-gray-300 rounded-md p-3 text-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              placeholder="例: 54321" inputmode="numeric">
+          </div>
+        </div>
+      </section>
+
+      <!-- 外観確認 -->
+      <section class="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+        <h2 class="text-lg font-bold mb-4 border-l-4 border-red-500 pl-2 flex items-center gap-1">
+          <span class="material-symbols-rounded text-red-500 text-xl">image_search</span>外観確認
+        </h2>
+
+        <div class="space-y-4">
+          <p class="text-sm text-gray-600">損傷箇所や気になるキズ・ヘコミがあれば撮影してください。</p>
+
+          <div>
+            <label class="block text-sm font-semibold mb-2">外観写真（任意）</label>
+            <div class="photo-area" id="exterior-photo-area"
+              onclick="document.getElementById('exterior-photo-input').click()">
+              <span class="material-symbols-rounded text-4xl text-gray-400 mb-1">add_photo_alternate</span>
+              <span class="text-sm text-gray-500">損傷箇所があれば撮影</span>
+            </div>
+            <input type="file" id="exterior-photo-input" accept="image/*" class="hidden"
+              onchange="handlePhotoSelect(this, 'exterior')">
+          </div>
+
+          <div>
+            <label class="block text-sm font-semibold mb-2">損傷箇所の詳細</label>
+            <textarea id="damage-memo" rows="2"
+              class="w-full border border-gray-300 rounded-md p-3 text-base focus:ring-2 focus:ring-red-500 outline-none"
+              placeholder="例: 右前バンパーに新しい擦り傷"></textarea>
+          </div>
+        </div>
+      </section>
+
+      <!-- ゴミチェックと備考 -->
+      <section class="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+        <h2 class="text-lg font-bold mb-4 border-l-4 border-emerald-500 pl-2 flex items-center gap-1">
+          <span class="material-symbols-rounded text-emerald-500 text-xl">delete_sweep</span>車内・その他
+        </h2>
+
+        <div class="space-y-5">
+          <div>
+            <label class="block text-sm font-semibold mb-2">車内ゴミ・汚れの状態 <span class="text-red-500">*</span></label>
+            <div class="flex gap-3">
+              <label class="flex-1 text-center cursor-pointer">
+                <input type="radio" name="garbage-check" value="清潔" class="radio-green">
+                <div
+                  class="radio-label border-2 border-gray-300 rounded-lg py-3 text-lg font-bold bg-white shadow-sm flex items-center justify-center gap-1">
+                  <span class="material-symbols-rounded">sentiment_satisfied</span> 清潔
+                </div>
+              </label>
+              <label class="flex-1 text-center cursor-pointer">
+                <input type="radio" name="garbage-check" value="清掃必要" class="radio-red">
+                <div
+                  class="radio-label border-2 border-gray-300 rounded-lg py-3 text-lg font-bold bg-white shadow-sm flex items-center justify-center gap-1">
+                  <span class="material-symbols-rounded">sentiment_dissatisfied</span> 要清掃
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-semibold mb-2">備考・その他連絡事項</label>
+            <textarea id="remarks" rows="2"
+              class="w-full border border-gray-300 rounded-md p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none"
+              placeholder="特記事項があればご記入ください"></textarea>
+          </div>
+        </div>
+      </section>
+
+      <!-- 署名 -->
+      <section class="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-lg font-bold border-l-4 border-blue-500 pl-2 flex items-center gap-1">
+            <span class="material-symbols-rounded text-blue-500 text-xl">draw</span>点検者署名 <span
+              class="text-red-500">*</span>
+          </h2>
+          <button type="button" id="btn-clear-sig"
+            class="flex items-center gap-1 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 py-1.5 px-3 rounded-md transition">
+            <span class="material-symbols-rounded text-base">refresh</span>クリア
+          </button>
+        </div>
+        <p class="text-xs text-gray-500 mb-3">枠内に指でサインをしてください</p>
+        <canvas id="signature-pad" class="canvas-container w-full h-40 bg-gray-50"></canvas>
+      </section>
+
+      <!-- 送信ボタン -->
+      <div class="pt-2">
+        <button type="button" id="btn-submit"
+          class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg text-xl flex justify-center items-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed">
+          <span class="material-symbols-rounded">cloud_upload</span>
+          点検データを送信する
+        </button>
+      </div>
+
+    </form>
+  </div>
+
+  <!-- UIスクリプト -->
+  <script>
+    // 設定値 (VSCodeから直接編集して置き換えてください)
+    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbwAeSG544nBGgXM696BG7h8LeZTczMxLxO5o3L5rjuELvljz3mxx-DVyXSZooQCc4NP/exec"; // 例: https://script.google.com/macros/s/AKfycb.../exec
+    const LIFF_ID = "2009810136-5AaDRWnT";             // 例: 1234567890-AbCdEfGh
+
+    // アプリの状態
+    let appState = {
+      userId: "",
+      vehicleId: "",
+      isGuest: true,
+      vehicles: []
+    };
+
+    // 圧縮画像の保存用
+    let compressedImages = {
+      meter: null,
+      exterior: null
+    };
+
+    // UI要素
+    const UI = {
+      loading: document.getElementById('loading'),
+      loadingText: document.getElementById('loading-text'),
+      empInfo: document.getElementById('employee-info'),
+      guestArea: document.getElementById('guest-input-area'),
+      guestName: document.getElementById('guest-name'),
+      vehicleSelect: document.getElementById('vehicle-select'),
+      btnSubmit: document.getElementById('btn-submit')
+    };
+
+    // 署名パッドの設定と無効化防止処理
+    const canvas = document.getElementById('signature-pad');
+    const preventScroll = (e) => { if (e.cancelable) e.preventDefault(); };
+    canvas.addEventListener('touchstart', preventScroll, { passive: false });
+    canvas.addEventListener('touchmove', preventScroll, { passive: false });
+    canvas.addEventListener('touchend', preventScroll, { passive: false });
+    canvas.addEventListener('pointerdown', preventScroll, { passive: false });
+    canvas.addEventListener('pointermove', preventScroll, { passive: false });
+    canvas.addEventListener('pointerup', preventScroll, { passive: false });
+
+    function resizeCanvas() {
+      const ratio = Math.max(window.devicePixelRatio || 1, 1);
+      canvas.width = canvas.offsetWidth * ratio;
+      canvas.height = canvas.offsetHeight * ratio;
+      canvas.getContext("2d").scale(ratio, ratio);
+    }
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+    const signaturePad = new SignaturePad(canvas);
+    document.getElementById('btn-clear-sig').addEventListener('click', () => signaturePad.clear());
+
+    /**
+     * アプリ初期化
+     */
+    async function initialize() {
+      try {
+        if (GAS_API_URL.includes("YOUR")) {
+          alert('注意: GAS_API_URL が設定されていません。\n194行目付近を確認してください。');
+        }
+
+        UI.loadingText.innerText = "URLパラメータ確認中...";
+        const urlParams = new URLSearchParams(window.location.search);
+        appState.vehicleId = urlParams.get('id') || urlParams.get('vehicleId') || "";
+
+        UI.loadingText.innerText = "LINE 初期化中...";
+        if (!LIFF_ID.includes("YOUR")) {
+          try {
+            await liff.init({ liffId: LIFF_ID });
+            if (liff.isLoggedIn()) {
+              const profile = await liff.getProfile();
+              appState.userId = profile.userId;
+            }
+          } catch (e) {
+            console.warn("LIFF Init Failed:", e);
+          }
+        }
+
+        UI.loadingText.innerText = "データ取得中...";
+        await fetchInitialData();
+
+      } catch (err) {
+        console.error("Initialization Failed:", err);
+        alert("初期化エラー: " + err.message);
+        UI.loadingText.innerText = "エラーが発生しました";
+      }
+    }
+
+    /**
+     * GASから初期データを取得
+     */
+    async function fetchInitialData() {
+      try {
+        const payload = {
+          action: 'getInitialData',
+          userId: appState.userId,
+          vehicleId: appState.vehicleId
+        };
+
+        const response = await fetch(GAS_API_URL, {
+          method: "POST",
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify(payload)
+        });
+
+        const res = await response.json();
+
+        if (res.success) {
+          renderApp(res);
+        } else {
+          throw new Error(res.error);
+        }
+      } catch (e) {
+        UI.loading.classList.add('hidden');
+        alert("データの取得に失敗しました。ローカル環境もしくはURLが間違っている可能性があります。\n詳細: " + e.message);
+      }
+    }
+
+    /**
+     * 画面に反映
+     */
+    function renderApp(data) {
+      // ユーザー情報
+      if (data.user.isEmployee && data.user.name) {
+        appState.isGuest = false;
+        UI.empInfo.classList.remove('hidden');
+        UI.empInfo.innerText = `${data.user.name} 様`;
+      } else {
+        appState.isGuest = true;
+        UI.guestArea.classList.remove('hidden');
+        const savedName = localStorage.getItem('vehicle_guest_name');
+        if (savedName) UI.guestName.value = savedName;
+      }
+
+      // 車両リスト
+      appState.vehicles = data.vehicles || [];
+      UI.vehicleSelect.innerHTML = '<option value="">-- 選択してください --</option>';
+      appState.vehicles.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.vehicleId;
+        opt.innerText = `${v.vehicleName} （${v.vehicleNumber}）`;
+        UI.vehicleSelect.appendChild(opt);
+      });
+
+      // 初期選択
+      if (appState.vehicleId) {
+        UI.vehicleSelect.value = appState.vehicleId;
+      }
+
+      UI.loading.classList.add('hidden');
+    }
+
+    /**
+     * 画像選択と圧縮プレビュー処理
+     */
+    async function handlePhotoSelect(inputElement, type) {
+      if (!inputElement.files || inputElement.files.length === 0) return;
+
+      const file = inputElement.files[0];
+      const area = document.getElementById(`${type}-photo-area`);
+
+      // 圧縮処理（画質落として転送量と保存容量を削減）
+      const compOptions = { maxSizeMB: 0.3, maxWidthOrHeight: 800, useWebWorker: false };
+
+      try {
+        // UI表示切替
+        area.innerHTML = `<div class="animate-pulse text-blue-500 font-semibold text-sm">画像圧縮中...</div>`;
+
+        const compressedFile = await imageCompression(file, compOptions);
+        const base64Data = await blobToBase64(compressedFile);
+
+        compressedImages[type] = {
+          data: base64Data,
+          name: compressedFile.name,
+          mimeType: compressedFile.type
+        };
+
+        // プレビュー表示
+        area.innerHTML = `
+                    <img src="data:${compressedFile.type};base64,${base64Data}" alt="${type} preview" />
+                    <button type="button" class="photo-remove" onclick="removePhoto(event, '${type}')">
+                        <span class="material-symbols-rounded text-sm">close</span>
+                    </button>
+                `;
+        area.classList.add('border-blue-500');
+
+      } catch (e) {
+        alert("写真の処理に失敗しました: " + e.message);
+        removePhoto(null, type);
+      }
+    }
+
+    /**
+     * プレビュー削除
+     */
+    function removePhoto(event, type) {
+      if (event) {
+        event.stopPropagation(); // 親要素のclick(アップロード)を発火させない
+        event.preventDefault();
+      }
+
+      compressedImages[type] = null;
+      document.getElementById(`${type}-photo-input`).value = '';
+
+      const area = document.getElementById(`${type}-photo-area`);
+      area.innerHTML = `
+                <span class="material-symbols-rounded text-4xl text-gray-400 mb-1">
+                    ${type === 'meter' ? 'photo_camera' : 'add_photo_alternate'}
+                </span>
+                <span class="text-sm text-gray-500">${type === 'meter' ? 'タップして撮影 / 画像を選択' : '損傷箇所があれば撮影'}</span>
+            `;
+      area.classList.remove('border-blue-500');
+    }
+
+    /**
+     * Blob to Base64 変換
+     */
+    function blobToBase64(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    /**
+     * 送信処理
+     */
+    UI.btnSubmit.addEventListener('click', async () => {
+      // -- 入力チェック (バリデーション) --
+      let inspectorName = appState.isGuest ? UI.guestName.value.trim() : document.getElementById('employee-info').innerText.split(' 様')[0];
+      if (appState.isGuest && !inspectorName) return alert("点検者氏名を入力してください。");
+
+      const vehicleId = UI.vehicleSelect.value;
+      if (!vehicleId) return alert("点検する車両を選択してください。");
+
+      const tireCond = document.querySelector('input[name="tire-condition"]:checked');
+      if (!tireCond) return alert("タイヤ状態を選択してください。");
+
+      const tireDepth = document.getElementById('tire-depth').value;
+      if (!tireDepth) return alert("タイヤ溝深さを選択してください。");
+
+      if (!compressedImages.meter) return alert("メーターの写真を添付してください。");
+
+      const warningLamp = document.querySelector('input[name="warning-lights"]:checked');
+      if (!warningLamp) return alert("異常ランプの有無を選択してください。");
+
+      const odometer = document.getElementById('odometer').value;
+      if (!odometer) return alert("走行メーター値を入力してください。");
+
+      const garbage = document.querySelector('input[name="garbage-check"]:checked');
+      if (!garbage) return alert("車内ゴミ・汚れの状態を選択してください。");
+
+      if (signaturePad.isEmpty()) return alert("署名を入力してください。");
+
+      // -- 送信データ構築 --
+      UI.btnSubmit.disabled = true;
+      UI.btnSubmit.innerHTML = `<div class="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full mr-2"></div> データ送信中...`;
+
+      if (appState.isGuest) {
+        localStorage.setItem('vehicle_guest_name', inspectorName);
+      }
+
+      const vehicleData = appState.vehicles.find(v => v.vehicleId === vehicleId) || {};
+
+      const formData = {
+        userId: appState.userId,
+        inspectorName: inspectorName,
+        vehicleId: vehicleId,
+        vehicleName: vehicleData.vehicleName || "",
+        tireCondition: tireCond.value,
+        tireDepth: tireDepth,
+        warningLights: warningLamp.value,
+        odometerValue: odometer,
+        damageMemo: document.getElementById('damage-memo').value,
+        garbageCheck: garbage.value,
+        notes: document.getElementById('remarks').value,
+        signature_data: signaturePad.toDataURL("image/png")
+      };
+
+      const payload = {
+        action: 'uploadDataAndFiles',
+        data: formData,
+        compressedFiles: compressedImages
+      };
+
+      try {
+        const response = await fetch(GAS_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify(payload)
+        });
+
+        const res = await response.json();
+
+        if (res.success) {
+          alert("点検記録を送信しました！\nお疲れ様でした。");
+          document.getElementById('inspectionForm').reset();
+          signaturePad.clear();
+          removePhoto(null, 'meter');
+          removePhoto(null, 'exterior');
+          window.scrollTo(0, 0);
+
+          if (liff && liff.isInClient()) {
+            liff.closeWindow();
+          }
+        } else {
+          alert("サーバーエラー: " + res.error);
+        }
+      } catch (err) {
+        console.error(err);
+        alert("通信エラーが発生しました: " + err.message);
+      } finally {
+        UI.btnSubmit.disabled = false;
+        UI.btnSubmit.innerHTML = `<span class="material-symbols-rounded">cloud_upload</span> 点検データを送信する`;
+      }
+    });
+
+    // アプリケーション起動
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initialize);
+    } else {
+      initialize();
+    }
+  </script>
+</body>
+
+</html>
