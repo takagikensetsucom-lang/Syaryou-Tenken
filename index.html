@@ -16,6 +16,8 @@
   <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
   <!-- Image Compression -->
   <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
+  <!-- Tesseract.js (ブラウザ内OCR / 走行メーター自動読み取り) -->
+  <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
   <!-- Material Icons -->
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0"
     rel="stylesheet">
@@ -224,6 +226,13 @@
             </div>
             <input type="file" id="meter-photo-input" accept="image/*" class="hidden"
               onchange="handlePhotoSelect(this, 'meter')">
+            <!-- OCR 状態表示 -->
+            <div id="ocr-status" class="hidden mt-3 p-3 rounded-lg text-sm flex items-center gap-2">
+              <div id="ocr-spinner" class="hidden animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full flex-shrink-0"></div>
+              <span class="material-symbols-rounded text-base hidden" id="ocr-icon-ok" style="color:#10b981">check_circle</span>
+              <span class="material-symbols-rounded text-base hidden" id="ocr-icon-ng" style="color:#f59e0b">info</span>
+              <span id="ocr-message" class="font-medium"></span>
+            </div>
           </div>
 
           <div>
@@ -248,9 +257,13 @@
 
           <div>
             <label class="block text-sm font-semibold mb-2">走行メーター値 (km) <span class="text-red-500">*</span></label>
-            <input type="number" id="odometer"
-              class="w-full border border-gray-300 rounded-md p-3 text-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              placeholder="例: 54321" inputmode="numeric">
+            <div class="relative">
+              <input type="number" id="odometer"
+                class="w-full border border-gray-300 rounded-md p-3 text-lg focus:ring-2 focus:ring-blue-500 outline-none pr-16"
+                placeholder="例: 54321" inputmode="numeric">
+              <span id="odometer-auto-badge" class="hidden absolute right-3 top-1/2 -translate-y-1/2 text-xs bg-green-100 text-green-700 rounded-full px-2 py-0.5 font-semibold">自動</span>
+            </div>
+            <p class="text-xs text-gray-400 mt-1">📷 写真を選ぶと自動で読み取ります。内容を確認・修正してください。</p>
           </div>
         </div>
       </section>
@@ -534,9 +547,79 @@
                 `;
         area.classList.add('border-blue-500');
 
+        // メーター写真の場合のみ OCR で走行距離を自動読み取り
+        if (type === 'meter') {
+          runOcrOnMeter(file);
+        }
+
       } catch (e) {
         alert("写真の処理に失敗しました: " + e.message);
         removePhoto(null, type);
+      }
+    }
+
+    /**
+     * メーター写真からTesseract.jsでOCR → 走行メーター値を自動入力
+     */
+    async function runOcrOnMeter(file) {
+      const statusEl  = document.getElementById('ocr-status');
+      const spinnerEl = document.getElementById('ocr-spinner');
+      const iconOk    = document.getElementById('ocr-icon-ok');
+      const iconNg    = document.getElementById('ocr-icon-ng');
+      const msgEl     = document.getElementById('ocr-message');
+      const badge     = document.getElementById('odometer-auto-badge');
+      const odomInput = document.getElementById('odometer');
+
+      // --- ステータス表示をリセット ---
+      statusEl.className  = 'mt-3 p-3 rounded-lg text-sm flex items-center gap-2 bg-blue-50 text-blue-700';
+      statusEl.classList.remove('hidden');
+      spinnerEl.classList.remove('hidden');
+      iconOk.classList.add('hidden');
+      iconNg.classList.add('hidden');
+      msgEl.textContent = 'メーター値を読み取り中…';
+      badge.classList.add('hidden');
+
+      try {
+        // 元画像（高解像度）を使って精度を上げるため file を直接渡す
+        const result = await Tesseract.recognize(file, 'eng', {
+          logger: () => {},  // 進捗ログを抑制
+          tessedit_char_whitelist: '0123456789.',  // 数字とドットのみ認識
+          tessedit_pageseg_mode: '6',   // 単一テキストブロック想定
+        });
+
+        const rawText = result.data.text;
+
+        // 数字列を抽出（5〜7桁のものをメーター値候補とする）
+        const numbers = rawText.match(/\d{4,7}/g);
+
+        if (numbers && numbers.length > 0) {
+          // 最も桁数が多い（=もっともらしい）数字を採用
+          const best = numbers.reduce((a, b) => a.length >= b.length ? a : b);
+          odomInput.value = parseInt(best, 10);
+          odomInput.focus();
+
+          spinnerEl.classList.add('hidden');
+          iconOk.classList.remove('hidden');
+          iconNg.classList.add('hidden');
+          statusEl.className = 'mt-3 p-3 rounded-lg text-sm flex items-center gap-2 bg-green-50 text-green-700';
+          msgEl.textContent  = `自動読み取り結果: ${parseInt(best, 10).toLocaleString()} km  ← 内容を確認してください`;
+          badge.classList.remove('hidden');
+        } else {
+          // 数字が見つからなかった場合
+          spinnerEl.classList.add('hidden');
+          iconNg.classList.remove('hidden');
+          iconOk.classList.add('hidden');
+          statusEl.className = 'mt-3 p-3 rounded-lg text-sm flex items-center gap-2 bg-yellow-50 text-yellow-700';
+          msgEl.textContent  = '数字を自動認識できませんでした。手動で入力してください。';
+        }
+
+      } catch (err) {
+        console.warn('OCR エラー:', err);
+        spinnerEl.classList.add('hidden');
+        iconNg.classList.remove('hidden');
+        iconOk.classList.add('hidden');
+        statusEl.className = 'mt-3 p-3 rounded-lg text-sm flex items-center gap-2 bg-yellow-50 text-yellow-700';
+        msgEl.textContent  = '読み取りに失敗しました。手動で入力してください。';
       }
     }
 
